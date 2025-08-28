@@ -489,6 +489,13 @@ class SurveyBot:
         try:
             print(f"🔧 Настройка webhook на порту {self.port}")
             print(f"🔧 Переменные окружения: PORT={os.getenv('PORT')}")
+            print(f"🔧 TELEGRAM_TOKEN: {'✅ Установлен' if TELEGRAM_TOKEN else '❌ Отсутствует'}")
+            print(f"🔧 SUPABASE_URL: {'✅ Установлен' if SUPABASE_URL else '❌ Отсутствует'}")
+            print(f"🔧 SUPABASE_KEY: {'✅ Установлен' if SUPABASE_KEY else '❌ Отсутствует'}")
+            
+            # Проверяем обязательные переменные
+            if not TELEGRAM_TOKEN:
+                raise Exception("TELEGRAM_TOKEN не установлен")
             
             # Создаем приложение
             self.application = Application.builder().token(TELEGRAM_TOKEN).build()
@@ -561,11 +568,56 @@ class SurveyBot:
         if is_railway:
             # Запуск на Railway с webhook
             print("🚂 Запуск в режиме Railway (webhook)")
-            asyncio.run(self.start_webhook())
+            try:
+                asyncio.run(self.start_webhook())
+            except Exception as e:
+                print(f"❌ Ошибка запуска webhook режима: {e}")
+                print("🔄 Переключение на fallback режим...")
+                self.run_fallback_server()
         else:
             # Локальный запуск с polling
             print("🏠 Запуск в локальном режиме (polling)")
             self.run_polling()
+    
+    def run_fallback_server(self):
+        """Запускает простой веб-сервер для health check без Telegram бота"""
+        print("🛟 Запуск fallback сервера...")
+        
+        async def simple_health_check(request):
+            print(f"🏥 Health check запрос от {request.remote}")
+            return web.Response(
+                text="Bot server is starting... 🤖", 
+                status=200,
+                content_type='text/plain'
+            )
+        
+        async def main():
+            port = int(os.getenv('PORT', 8080))
+            print(f"🔧 Запуск fallback сервера на порту {port}")
+            
+            app = web.Application()
+            app.router.add_get('/', simple_health_check)
+            app.router.add_get('/health', simple_health_check)
+            
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, '0.0.0.0', port)
+            await site.start()
+            
+            print(f"🚀 Fallback сервер запущен на порту {port}")
+            print("📡 Ожидание запросов...")
+            
+            try:
+                await asyncio.Future()
+            except KeyboardInterrupt:
+                await runner.cleanup()
+        
+        try:
+            asyncio.run(main())
+        except Exception as e:
+            print(f"❌ Ошибка fallback сервера: {e}")
+            import traceback
+            traceback.print_exc()
 
 if __name__ == "__main__":
     bot = SurveyBot()
