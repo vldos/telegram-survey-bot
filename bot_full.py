@@ -11,6 +11,16 @@ import threading
 import time
 import requests
 import json
+from datetime import datetime
+from supabase import create_client, Client
+
+# Загружаем переменные окружения
+from dotenv import load_dotenv
+load_dotenv()
+
+# Supabase configuration
+SUPABASE_URL = os.getenv('SUPABASE_URL')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY')
 
 # Конфигурация вопросов
 QUESTIONS = [
@@ -91,6 +101,59 @@ ADDITIONAL_QUESTIONS = [
     }
 ]
 
+class DatabaseManager:
+    def __init__(self):
+        if SUPABASE_URL and SUPABASE_KEY:
+            try:
+                self.supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+                print("✅ Подключение к Supabase установлено")
+            except Exception as e:
+                print(f"❌ Ошибка подключения к Supabase: {e}")
+                self.supabase = None
+        else:
+            print("⚠️ SUPABASE_URL или SUPABASE_KEY не установлены")
+            self.supabase = None
+    
+    def save_survey_response(self, user_id: int, username: str, answers: dict):
+        """
+        Сохраняет ответы пользователя в базу данных
+        """
+        if not self.supabase:
+            print("❌ База данных недоступна")
+            return False, "База данных недоступна"
+        
+        try:
+            # Подготавливаем данные для сохранения
+            survey_data = {
+                "user_id": user_id,
+                "username": username,
+                "created_at": datetime.now().isoformat(),
+                "answers": json.dumps(answers, ensure_ascii=False)
+            }
+            
+            # Сохраняем в таблицу survey_responses
+            result = self.supabase.table("survey_responses").insert(survey_data).execute()
+            
+            print(f"✅ Ответы пользователя {user_id} сохранены в базу данных")
+            return True, "Ответы успешно сохранены"
+        except Exception as e:
+            print(f"❌ Ошибка при сохранении: {str(e)}")
+            return False, f"Ошибка при сохранении: {str(e)}"
+    
+    def get_all_responses_count(self):
+        """
+        Получает количество всех ответов
+        """
+        if not self.supabase:
+            return 0
+        
+        try:
+            result = self.supabase.table("survey_responses").select("id", count="exact").execute()
+            return result.count if hasattr(result, 'count') else 0
+        except Exception as e:
+            print(f"❌ Ошибка при получении количества ответов: {str(e)}")
+            return 0
+
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         print(f"🏥 GET запрос: {self.path}")
@@ -114,7 +177,7 @@ def run_health_server():
         print(f"🔧 Запуск health check сервера на порту {port}")
         print(f"🔧 Переменные окружения:")
         for key, value in os.environ.items():
-            if key in ['PORT', 'RAILWAY_ENVIRONMENT', 'RAILWAY_PROJECT_ID', 'TELEGRAM_TOKEN']:
+            if key in ['PORT', 'RAILWAY_ENVIRONMENT', 'RAILWAY_PROJECT_ID', 'TELEGRAM_TOKEN', 'SUPABASE_URL']:
                 print(f"   {key}={value[:10] + '...' if len(value) > 10 else value}")
         
         server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
@@ -135,6 +198,8 @@ class FullTelegramBot:
         self.offset = 0
         self.user_states = {}  # Состояния пользователей
         self.user_answers = {}  # Ответы пользователей
+        self.user_info = {}  # Информация о пользователях
+        self.db = DatabaseManager()  # Менеджер базы данных
     
     def send_message(self, chat_id, text, reply_markup=None):
         """Отправляет сообщение в Telegram"""
@@ -198,6 +263,14 @@ class FullTelegramBot:
             message = update["message"]
             chat_id = message["chat"]["id"]
             text = message.get("text", "")
+            
+            # Сохраняем информацию о пользователе
+            if chat_id not in self.user_info:
+                self.user_info[chat_id] = {
+                    "username": message.get("from", {}).get("username", ""),
+                    "first_name": message.get("from", {}).get("first_name", ""),
+                    "last_name": message.get("from", {}).get("last_name", "")
+                }
             
             print(f"📨 Получено сообщение от {chat_id}: {text}")
             
@@ -355,14 +428,32 @@ class FullTelegramBot:
         self.send_question(chat_id)
     
     def finish_survey(self, chat_id):
-        """Завершает опрос"""
-        finish_text = """
+        """Завершает опрос и сохраняет в базу данных"""
+        # Сохраняем ответы в базу данных
+        username = self.user_info.get(chat_id, {}).get("username", "")
+        if not username:
+            username = f"user_{chat_id}"
+        
+        success, message = self.db.save_survey_response(chat_id, username, self.user_answers[chat_id])
+        
+        if success:
+            finish_text = """
 🎉 Дякуємо за участь в опитуванні!
 
-Ваші відповіді успішно збережені. Це допоможе нам створити кращий сервіс для пошуку розваг та активностей.
+✅ Ваші відповіді успішно збережені в базу даних.
+📊 Це допоможе нам створити кращий сервіс для пошуку розваг та активностей.
 
 Бот працює на Railway! 🚂
-        """
+            """
+        else:
+            finish_text = """
+🎉 Дякуємо за участь в опитуванні!
+
+⚠️ Ваші відповіді збережені локально, але виникла проблема з базою даних.
+📊 Ми все одно використаємо ваші відповіді для аналізу.
+
+Бот працює на Railway! 🚂
+            """
         
         # Очищаем состояние пользователя
         if chat_id in self.user_states:
@@ -380,11 +471,14 @@ class FullTelegramBot:
     
     def show_stats(self, chat_id):
         """Показывает статистику"""
+        db_count = self.db.get_all_responses_count()
+        active_surveys = len(self.user_states)
+        
         stats_text = f"""
 📊 Статистика опитування:
 
-Активних опросов: {len(self.user_states)}
-Завершенных опросов: {len([k for k in self.user_answers.keys() if k not in self.user_states])}
+🗄️ Всього відповідей в базі даних: {db_count}
+🔄 Активних опросів: {active_surveys}
 
 Бот працює на Railway! 🚂
         """
@@ -419,6 +513,12 @@ def main():
         return
     
     print("✅ TELEGRAM_TOKEN найден")
+    
+    # Проверяем настройки базы данных
+    if SUPABASE_URL and SUPABASE_KEY:
+        print("✅ Настройки Supabase найдены")
+    else:
+        print("⚠️ Настройки Supabase не найдены - ответы будут сохраняться только локально")
     
     # Запускаем health check сервер в отдельном потоке
     health_thread = threading.Thread(target=run_health_server, daemon=True)
