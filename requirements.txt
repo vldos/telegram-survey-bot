@@ -1,5 +1,5 @@
-python-telegram-bot==21.0
-supabase==1.2.0
-python-dotenv==1.0.0
-httpx==0.25.2
-aiohttp==3.9.1
+python-telegram-bot
+supabase
+python-dotenv
+aiohttp
+websockets
