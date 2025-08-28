@@ -459,7 +459,12 @@ class SurveyBot:
     
     async def health_check(self, request):
         """Health check endpoint для Railway"""
-        return web.Response(text="Bot is running!", status=200)
+        print(f"🏥 Health check запрос от {request.remote}")
+        return web.Response(
+            text="Bot is running! 🤖", 
+            status=200,
+            content_type='text/plain'
+        )
     
     async def webhook_handler(self, request):
         """Обработчик webhook от Telegram"""
@@ -477,21 +482,28 @@ class SurveyBot:
     
     async def start_webhook(self):
         """Запускает бота с webhook"""
+        print(f"🔧 Настройка webhook на порту {self.port}")
+        
         # Создаем приложение
         self.application = Application.builder().token(TELEGRAM_TOKEN).build()
+        print("✅ Telegram приложение создано")
         
         # Настраиваем обработчики
         self.setup_handlers()
+        print("✅ Обработчики настроены")
         
         # Настраиваем webhook
         if self.webhook_url:
             await self.application.bot.set_webhook(url=f"{self.webhook_url}/webhook")
-            logger.info(f"Webhook установлен: {self.webhook_url}/webhook")
+            print(f"✅ Webhook установлен: {self.webhook_url}/webhook")
+        else:
+            print("⚠️ WEBHOOK_URL не установлен")
         
         # Создаем веб-сервер
         app = web.Application()
         app.router.add_get('/', self.health_check)
         app.router.add_post('/webhook', self.webhook_handler)
+        print("✅ Веб-сервер настроен")
         
         # Запускаем сервер
         runner = web.AppRunner(app)
@@ -499,13 +511,15 @@ class SurveyBot:
         site = web.TCPSite(runner, '0.0.0.0', self.port)
         await site.start()
         
-        logger.info(f"🤖 Бот запущен на порту {self.port}")
-        logger.info("Ожидание webhook запросов...")
+        print(f"🚀 Веб-сервер запущен на порту {self.port}")
+        print("🤖 Бот готов к работе!")
+        print("📡 Ожидание webhook запросов...")
         
         # Держим сервер запущенным
         try:
             await asyncio.Future()  # Бесконечное ожидание
         except KeyboardInterrupt:
+            print("🛑 Получен сигнал остановки")
             await runner.cleanup()
     
     def run_polling(self):
@@ -522,11 +536,21 @@ class SurveyBot:
     
     def run(self):
         """Запускает бота в зависимости от окружения"""
-        if os.getenv('RAILWAY_ENVIRONMENT'):
+        # Проверяем различные признаки Railway окружения
+        is_railway = (
+            os.getenv('RAILWAY_ENVIRONMENT') or 
+            os.getenv('RAILWAY_PROJECT_ID') or 
+            os.getenv('PORT') or
+            os.getenv('RAILWAY_SERVICE_NAME')
+        )
+        
+        if is_railway:
             # Запуск на Railway с webhook
+            print("🚂 Запуск в режиме Railway (webhook)")
             asyncio.run(self.start_webhook())
         else:
             # Локальный запуск с polling
+            print("🏠 Запуск в локальном режиме (polling)")
             self.run_polling()
 
 if __name__ == "__main__":
