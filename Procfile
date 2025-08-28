@@ -1,1 +1,1 @@
-web: python bot_full.py
+web: python bot_health.py
