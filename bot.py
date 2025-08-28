@@ -460,6 +460,10 @@ class SurveyBot:
     async def health_check(self, request):
         """Health check endpoint для Railway"""
         print(f"🏥 Health check запрос от {request.remote}")
+        print(f"🏥 User-Agent: {request.headers.get('User-Agent', 'Unknown')}")
+        print(f"🏥 Method: {request.method}")
+        print(f"🏥 Path: {request.path}")
+        
         return web.Response(
             text="Bot is running! 🤖", 
             status=200,
@@ -482,45 +486,55 @@ class SurveyBot:
     
     async def start_webhook(self):
         """Запускает бота с webhook"""
-        print(f"🔧 Настройка webhook на порту {self.port}")
-        
-        # Создаем приложение
-        self.application = Application.builder().token(TELEGRAM_TOKEN).build()
-        print("✅ Telegram приложение создано")
-        
-        # Настраиваем обработчики
-        self.setup_handlers()
-        print("✅ Обработчики настроены")
-        
-        # Настраиваем webhook
-        if self.webhook_url:
-            await self.application.bot.set_webhook(url=f"{self.webhook_url}/webhook")
-            print(f"✅ Webhook установлен: {self.webhook_url}/webhook")
-        else:
-            print("⚠️ WEBHOOK_URL не установлен")
-        
-        # Создаем веб-сервер
-        app = web.Application()
-        app.router.add_get('/', self.health_check)
-        app.router.add_post('/webhook', self.webhook_handler)
-        print("✅ Веб-сервер настроен")
-        
-        # Запускаем сервер
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, '0.0.0.0', self.port)
-        await site.start()
-        
-        print(f"🚀 Веб-сервер запущен на порту {self.port}")
-        print("🤖 Бот готов к работе!")
-        print("📡 Ожидание webhook запросов...")
-        
-        # Держим сервер запущенным
         try:
-            await asyncio.Future()  # Бесконечное ожидание
-        except KeyboardInterrupt:
-            print("🛑 Получен сигнал остановки")
-            await runner.cleanup()
+            print(f"🔧 Настройка webhook на порту {self.port}")
+            print(f"🔧 Переменные окружения: PORT={os.getenv('PORT')}")
+            
+            # Создаем приложение
+            self.application = Application.builder().token(TELEGRAM_TOKEN).build()
+            print("✅ Telegram приложение создано")
+            
+            # Настраиваем обработчики
+            self.setup_handlers()
+            print("✅ Обработчики настроены")
+            
+            # Настраиваем webhook
+            if self.webhook_url:
+                await self.application.bot.set_webhook(url=f"{self.webhook_url}/webhook")
+                print(f"✅ Webhook установлен: {self.webhook_url}/webhook")
+            else:
+                print("⚠️ WEBHOOK_URL не установлен")
+            
+            # Создаем веб-сервер
+            app = web.Application()
+            app.router.add_get('/', self.health_check)
+            app.router.add_get('/health', self.health_check)
+            app.router.add_post('/webhook', self.webhook_handler)
+            print("✅ Веб-сервер настроен")
+            print("📡 Доступные пути: /, /health, /webhook")
+            
+            # Запускаем сервер
+            runner = web.AppRunner(app)
+            await runner.setup()
+            site = web.TCPSite(runner, '0.0.0.0', self.port)
+            await site.start()
+            
+            print(f"🚀 Веб-сервер запущен на порту {self.port}")
+            print("🤖 Бот готов к работе!")
+            print("📡 Ожидание webhook запросов...")
+            
+            # Держим сервер запущенным
+            try:
+                await asyncio.Future()  # Бесконечное ожидание
+            except KeyboardInterrupt:
+                print("🛑 Получен сигнал остановки")
+                await runner.cleanup()
+                
+        except Exception as e:
+            print(f"❌ Ошибка запуска бота: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
     
     def run_polling(self):
         """Запускает бота в режиме polling (для локальной разработки)"""
