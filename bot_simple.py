@@ -9,6 +9,8 @@ import sys
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 import time
+import requests
+import json
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -47,6 +49,110 @@ def run_health_server():
         import traceback
         traceback.print_exc()
 
+class SimpleTelegramBot:
+    def __init__(self, token):
+        self.token = token
+        self.base_url = f"https://api.telegram.org/bot{token}"
+        self.offset = 0
+    
+    def send_message(self, chat_id, text):
+        """Отправляет сообщение в Telegram"""
+        try:
+            url = f"{self.base_url}/sendMessage"
+            data = {
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "HTML"
+            }
+            response = requests.post(url, json=data)
+            if response.status_code == 200:
+                print(f"✅ Сообщение отправлено в {chat_id}")
+            else:
+                print(f"❌ Ошибка отправки: {response.text}")
+        except Exception as e:
+            print(f"❌ Ошибка отправки сообщения: {e}")
+    
+    def get_updates(self):
+        """Получает обновления от Telegram"""
+        try:
+            url = f"{self.base_url}/getUpdates"
+            params = {
+                "offset": self.offset,
+                "timeout": 30
+            }
+            response = requests.get(url, params=params)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("ok") and data.get("result"):
+                    for update in data["result"]:
+                        self.handle_update(update)
+                        self.offset = update["update_id"] + 1
+        except Exception as e:
+            print(f"❌ Ошибка получения обновлений: {e}")
+    
+    def handle_update(self, update):
+        """Обрабатывает обновление от Telegram"""
+        if "message" in update:
+            message = update["message"]
+            chat_id = message["chat"]["id"]
+            text = message.get("text", "")
+            
+            print(f"📨 Получено сообщение от {chat_id}: {text}")
+            
+            if text == "/start":
+                welcome_text = """
+🤖 Привіт! Я бот для збору відповідей на питання про пошук розваг та активностей.
+
+📋 Описування займе приблизно 5-10 хвилин.
+💾 Всі ваші відповіді будуть збережені анонімно.
+
+Готові почати опитування? Відправте "Почати" для початку!
+                """
+                self.send_message(chat_id, welcome_text)
+            
+            elif text.lower() in ["почати", "start", "начать"]:
+                survey_text = """
+🎯 Чудово! Починаємо опитування.
+
+❓ Питання 1: Де ви частіше шукаєте, чим зайнятись у вільний час?
+
+Варіанти відповідей:
+1. У подорожах
+2. У своєму місті
+3. І там, і там
+4. Я не шукаю спеціально
+
+Відправте номер відповіді (1-4):
+                """
+                self.send_message(chat_id, survey_text)
+            
+            else:
+                help_text = """
+💡 Доступні команди:
+/start - Почати роботу з ботом
+Почати - Почати опитування
+
+Бот працює в тестовому режимі на Railway! 🚂
+                """
+                self.send_message(chat_id, help_text)
+
+def run_telegram_bot():
+    """Запускает Telegram бота"""
+    token = os.getenv('TELEGRAM_TOKEN')
+    if not token:
+        print("❌ TELEGRAM_TOKEN не найден")
+        return
+    
+    bot = SimpleTelegramBot(token)
+    print("🤖 Telegram бот запущен")
+    
+    try:
+        while True:
+            bot.get_updates()
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("🛑 Telegram бот остановлен")
+
 def main():
     """Основная функция"""
     print("🤖 Запуск упрощенного Telegram бота...")
@@ -66,8 +172,13 @@ def main():
     
     print("🔄 Запуск основного бота...")
     
-    # Здесь можно добавить логику Telegram бота
-    # Пока просто ждем
+    # Запускаем Telegram бота в отдельном потоке
+    bot_thread = threading.Thread(target=run_telegram_bot, daemon=True)
+    bot_thread.start()
+    
+    print("✅ Все компоненты запущены")
+    
+    # Ждем завершения
     try:
         while True:
             time.sleep(1)
