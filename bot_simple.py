@@ -379,8 +379,16 @@ class FullTelegramBot:
             self.send_question(chat_id)
         elif text == "✅ Завершити вибір":
             self.finish_multiple_choice(chat_id)
+        elif text == "↩ Назад до варіантів":
+            # Возвращаемся к вариантам ответов
+            if "waiting_for_other" in state and state["waiting_for_other"]:
+                state["waiting_for_other"] = False
+                self.send_question(chat_id)
         elif text.startswith("1.") or text.startswith("2.") or text.startswith("3.") or text.startswith("4.") or text.startswith("5.") or text.startswith("6."):
             self.process_answer(chat_id, text)
+        elif state.get("waiting_for_other", False):
+            # Обрабатываем ввод текста для "Інше"
+            self.process_other_answer(chat_id, text)
         elif state["phase"] == "additional":
             self.process_text_answer(chat_id, text)
         else:
@@ -435,6 +443,21 @@ class FullTelegramBot:
             if answer_index < len(question_data['options']):
                 selected_answer = question_data['options'][answer_index]
                 
+                # Проверяем, выбрал ли пользователь "Інше"
+                if selected_answer == "Інше":
+                    # Переводим в режим ввода текста для "Інше"
+                    state["waiting_for_other"] = True
+                    state["current_question_id"] = question_data['id']
+                    state["question_type"] = question_data['type']
+                    
+                    keyboard = {
+                        "keyboard": [[{"text": "↩ Назад до варіантів"}]],
+                        "resize_keyboard": True
+                    }
+                    
+                    self.send_message(chat_id, "📝 Будь ласка, введіть ваш варіант відповіді:", keyboard)
+                    return
+                
                 if question_data['type'] == 'single_choice':
                     self.user_answers[chat_id][f"q{question_data['id']}"] = selected_answer
                     state["current_question"] += 1
@@ -457,7 +480,10 @@ class FullTelegramBot:
         
         keyboard = []
         for i, option in enumerate(question_data['options'], 1):
-            if option in current_answers:
+            # Проверяем, выбрана ли опция (включая "Інше")
+            is_selected = option in current_answers or any(answer.startswith("Інше:") for answer in current_answers if isinstance(answer, str))
+            
+            if is_selected:
                 keyboard.append([{"text": f"☑ {i}. {option}"}])
             else:
                 keyboard.append([{"text": f"☐ {i}. {option}"}])
@@ -475,6 +501,31 @@ class FullTelegramBot:
     def finish_multiple_choice(self, chat_id):
         """Завершает множественный выбор"""
         state = self.user_states[chat_id]
+        state["current_question"] += 1
+        self.send_question(chat_id)
+    
+    def process_other_answer(self, chat_id, text):
+        """Обрабатывает ввод текста для опции 'Інше'"""
+        state = self.user_states[chat_id]
+        question_id = state["current_question_id"]
+        question_type = state["question_type"]
+        
+        # Сохраняем введенный текст
+        if question_type == 'single_choice':
+            self.user_answers[chat_id][f"q{question_id}"] = f"Інше: {text}"
+        elif question_type == 'multiple_choice':
+            if f"q{question_id}" not in self.user_answers[chat_id]:
+                self.user_answers[chat_id][f"q{question_id}"] = []
+            self.user_answers[chat_id][f"q{question_id}"].append(f"Інше: {text}")
+        
+        # Очищаем состояние ожидания
+        state["waiting_for_other"] = False
+        if "current_question_id" in state:
+            del state["current_question_id"]
+        if "question_type" in state:
+            del state["question_type"]
+        
+        # Переходим к следующему вопросу
         state["current_question"] += 1
         self.send_question(chat_id)
     
