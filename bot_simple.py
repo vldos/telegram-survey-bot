@@ -92,12 +92,16 @@ QUESTIONS = [
             "Тривалість",
             "Тип (активні, спокійні тощо)",
             "Кількість учасників",
-            "Підходить для дітей/сім'ї",
-            "Інше"
+            "Підходить для дітей/сім'ї"
         ]
     },
     {
         "id": 7,
+        "question": "Чи є додаткові фільтри, які б вам були корисні при виборі розваг?",
+        "type": "text"
+    },
+    {
+        "id": 8,
         "question": "Наскільки складно вам зазвичай знайти розваги, які вас цікавлять?",
         "type": "single_choice",
         "options": [
@@ -108,7 +112,7 @@ QUESTIONS = [
         ]
     },
     {
-        "id": 8,
+        "id": 9,
         "question": "Ви зазвичай бронюєте щось заздалегідь чи приймаєте рішення в день активності?",
         "type": "single_choice",
         "options": [
@@ -119,7 +123,7 @@ QUESTIONS = [
         ]
     },
     {
-        "id": 9,
+        "id": 10,
         "question": "Було б вам цікаво, якби застосунок сам пропонував розваги за вашим настроєм, стилем відпочинку або погодою?",
         "type": "single_choice",
         "options": [
@@ -129,7 +133,7 @@ QUESTIONS = [
         ]
     },
     {
-        "id": 10,
+        "id": 11,
         "question": "Ви б хотіли користуватись таким застосунком?",
         "type": "single_choice",
         "options": [
@@ -391,6 +395,9 @@ class FullTelegramBot:
         elif state.get("waiting_for_other", False):
             # Обрабатываем ввод текста для "Інше"
             self.process_other_answer(chat_id, text)
+        elif state["phase"] == "main" and QUESTIONS[state["current_question"]]["type"] == "text":
+            # Обрабатываем текстовый ответ в основной части
+            self.process_answer(chat_id, text)
         elif state["phase"] == "additional":
             self.process_text_answer(chat_id, text)
         else:
@@ -406,7 +413,15 @@ class FullTelegramBot:
                 question_data = QUESTIONS[current_question]
                 question_text = f"❓ {question_data['question']}"
                 
-                keyboard = self.create_keyboard(question_data['options'], question_data['type'])
+                if question_data['type'] == 'text':
+                    # Для текстовых вопросов показываем кнопку "Пропустить"
+                    keyboard = {
+                        "keyboard": [[{"text": "⏭ Пропустити"}]],
+                        "resize_keyboard": True
+                    }
+                else:
+                    keyboard = self.create_keyboard(question_data['options'], question_data['type'])
+                
                 self.send_message(chat_id, question_text, keyboard)
             else:
                 # Переходим к дополнительным вопросам
@@ -440,6 +455,17 @@ class FullTelegramBot:
         
         if state["phase"] == "main":
             question_data = QUESTIONS[current_question]
+            
+            if question_data['type'] == 'text':
+                # Обрабатываем текстовый вопрос
+                if text == "⏭ Пропустити":
+                    pass  # Пропускаем вопрос
+                else:
+                    self.user_answers[chat_id][f"q{question_data['id']}"] = text
+                
+                state["current_question"] += 1
+                self.send_question(chat_id)
+                return
             
             # Извлекаем номер опции, убирая возможные символы галочек
             clean_text = text.replace("☑ ", "").replace("☐ ", "")
