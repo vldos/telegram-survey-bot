@@ -438,10 +438,15 @@ class FullTelegramBot:
         
         if state["phase"] == "main":
             question_data = QUESTIONS[current_question]
-            answer_index = int(text.split(".")[0]) - 1
+            
+            # Извлекаем номер опции, убирая возможные символы галочек
+            clean_text = text.replace("☑ ", "").replace("☐ ", "")
+            answer_index = int(clean_text.split(".")[0]) - 1
             
             if answer_index < len(question_data['options']):
                 selected_answer = question_data['options'][answer_index]
+                
+                print(f"🔍 Обработка ответа: {text} -> {selected_answer}")
                 
                 # Проверяем, выбрал ли пользователь "Інше"
                 if selected_answer == "Інше":
@@ -466,10 +471,18 @@ class FullTelegramBot:
                     if f"q{question_data['id']}" not in self.user_answers[chat_id]:
                         self.user_answers[chat_id][f"q{question_data['id']}"] = []
                     
-                    if selected_answer in self.user_answers[chat_id][f"q{question_data['id']}"]:
-                        self.user_answers[chat_id][f"q{question_data['id']}"].remove(selected_answer)
+                    current_answers = self.user_answers[chat_id][f"q{question_data['id']}"]
+                    print(f"📊 Текущие ответы: {current_answers}")
+                    print(f"🎯 Выбранный ответ: {selected_answer}")
+                    
+                    if selected_answer in current_answers:
+                        current_answers.remove(selected_answer)
+                        print(f"❌ Удален ответ: {selected_answer}")
                     else:
-                        self.user_answers[chat_id][f"q{question_data['id']}"].append(selected_answer)
+                        current_answers.append(selected_answer)
+                        print(f"✅ Добавлен ответ: {selected_answer}")
+                    
+                    print(f"📊 Обновленные ответы: {current_answers}")
                     
                     # Обновляем клавиатуру
                     self.update_multiple_choice_keyboard(chat_id, question_data)
@@ -477,6 +490,9 @@ class FullTelegramBot:
     def update_multiple_choice_keyboard(self, chat_id, question_data):
         """Обновляет клавиатуру для множественного выбора"""
         current_answers = self.user_answers[chat_id].get(f"q{question_data['id']}", [])
+        
+        print(f"🔄 Обновление клавиатуры для вопроса {question_data['id']}")
+        print(f"📊 Текущие ответы: {current_answers}")
         
         keyboard = []
         for i, option in enumerate(question_data['options'], 1):
@@ -488,10 +504,10 @@ class FullTelegramBot:
                 has_other_answer = any(answer.startswith("Інше:") for answer in current_answers if isinstance(answer, str))
                 is_selected = is_selected or has_other_answer
             
-            if is_selected:
-                keyboard.append([{"text": f"☑ {i}. {option}"}])
-            else:
-                keyboard.append([{"text": f"☐ {i}. {option}"}])
+            button_text = f"☑ {i}. {option}" if is_selected else f"☐ {i}. {option}"
+            keyboard.append([{"text": button_text}])
+            
+            print(f"   {i}. {option}: {'☑' if is_selected else '☐'}")
         
         keyboard.append([{"text": "✅ Завершити вибір"}])
         
