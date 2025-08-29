@@ -480,8 +480,13 @@ class FullTelegramBot:
         
         keyboard = []
         for i, option in enumerate(question_data['options'], 1):
-            # Проверяем, выбрана ли опция (включая "Інше")
-            is_selected = option in current_answers or any(answer.startswith("Інше:") for answer in current_answers if isinstance(answer, str))
+            # Проверяем, выбрана ли опция
+            is_selected = option in current_answers
+            
+            # Если это опция "Інше", проверяем также наличие ответов "Інше:"
+            if option == "Інше":
+                has_other_answer = any(answer.startswith("Інше:") for answer in current_answers if isinstance(answer, str))
+                is_selected = is_selected or has_other_answer
             
             if is_selected:
                 keyboard.append([{"text": f"☑ {i}. {option}"}])
